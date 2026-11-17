@@ -1,6 +1,19 @@
 # Capstone Track: Machine Learning and AI
  
 **Final Sprint | Due before Final Presentations**
+
+> **New to this track? Start here.** The shared [INET 4031 Capstone Guide](https://github.com/INET4031-Labs/inet4031-capstone-guide) explains how to work through any track on your own. Feeling lost in the first few days is normal for a capstone: read the guide's Start Here page, run the Environment Checkpoint below, and take the next small step.
+>
+> | I need... | Go to |
+> |---|---|
+> | A reading order and what to do in my first session | [START-HERE](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/START-HERE.md) |
+> | What to prioritize in Weeks 11 to 14 | [WEEKLY-PLAN](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/WEEKLY-PLAN.md) and the Sprint Timeline below |
+> | Plain-language explanations of this track's concepts | [CONCEPTS](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/CONCEPTS.md) |
+> | A cheat sheet for each tool in this track | [TOOL-GUIDE](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/TOOL-GUIDE.md) |
+> | Which file proves which success criterion | [EVIDENCE-CHECKLIST](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/EVIDENCE-CHECKLIST.md) |
+> | How the Week 13 rebuild works | [REBUILD](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/REBUILD.md) and the Rebuild section below |
+> | Help when something is broken | [GETTING-UNSTUCK](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/GETTING-UNSTUCK.md) |
+> | How to use AI tools well on this project | [USING-AI](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/USING-AI.md) |
  
 ## Overview
  
@@ -126,6 +139,52 @@ These are examples, not requirements. Combine them, change them, or ignore them.
  
 **Approach C: Honest-evaluation focus.** Build a smaller classifier but invest in the evaluation: a confusion matrix saved as a file, per-class precision and recall, a deliberately harder test set (titles with unseen wording), and a written explanation of where the model should not be trusted. This demonstrates that a measured, modest model is more useful to Priya's team than an unmeasured impressive one.
  
+## Track Tips and Common Trip-Ups
+
+These notes come from where students usually get stuck. They do not change the success criteria; they help you reach them. Concepts are explained in [CONCEPTS](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/CONCEPTS.md) and commands in [TOOL-GUIDE](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/TOOL-GUIDE.md). If a flag here does not work on your installed version, check the tool's `--help`.
+
+**Labels are the hard part (criteria 1 and 2)**
+
+- If your generator assigns labels from keywords in the title and the model reads the same titles, it will score close to perfect. That tells you about your generator, not about real incidents. Make the data more realistic and harder: synonyms, titles that could fit two categories, a small share of deliberately "noisy" labels, and a test set with wording the model never saw. Write what you did and why in `ARCHITECTURE.md`. Discussion question 2 asks about exactly this.
+- Seed everything: Python's `random`, NumPy, and `random_state=` in `train_test_split` and the model. Prove reproducibility by running the generator twice and comparing `sha256sum` of both outputs.
+
+**Measuring honestly (criterion 2)**
+
+- Train your baseline first: `DummyClassifier(strategy="most_frequent")` from `sklearn.dummy`. Record its accuracy and macro F1 in the same metrics file as your model.
+- Accuracy alone can hide a problem. If 70% of incidents are "Low," a model that always says "Low" scores 0.70 while missing every Critical incident. That is why the criterion also asks for macro F1, which weights each class equally.
+- A `Pipeline` of `TfidfVectorizer` and `LogisticRegression` keeps the text processing and the model in one file you can save with joblib. One pipeline per target (category, severity) is simplest.
+- For the confidence value, `predict_proba` gives a probability per class; the highest one is a reasonable confidence to return.
+
+**Serving and proving it (criteria 3 to 5)**
+
+- Load the model once when the service starts, not on every request, or your timing will suffer. Measure with `curl -s -o /dev/null -w "%{time_total}\n" ...` and save several runs, not one.
+- For the blocked-traffic test, use a short-lived pod with a memory limit (see the debug pod example below) that does not match your allow policy, and request your service's cluster address. A request that times out is the expected result; save the output.
+- Check image size with `docker image ls ml-ai-infer:team<N>`. If it is too large, look at the base image and remove packages the service does not import.
+
+Debug pod with a memory limit (`kubectl run` cannot set limits in current versions):
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: blocked-client
+  labels:
+    app: blocked-client
+spec:
+  restartPolicy: Never
+  containers:
+    - name: client
+      image: busybox
+      command: ["sleep", "600"]
+      resources:
+        requests:
+          memory: "16Mi"
+        limits:
+          memory: "64Mi"
+```
+
+Then `kubectl exec blocked-client -- wget -T 5 -qO- http://<service>:<port>/<path>`, save the output, and `kubectl delete pod blocked-client`.
+
 ## Rules of the Road
  
 - **Obey the shared-VM limits.** About six teams share one VM. Keep all your additions under **512Mi** of memory limits combined. Every pod you deploy needs `resources.requests` and `resources.limits` for memory. Check with `kubectl describe pod <name>` (look at Requests and Limits), `free -h`, and `kubectl top pods -A`. If `kubectl top` errors, tell the TA.
@@ -133,7 +192,7 @@ These are examples, not requirements. Combine them, change them, or ignore them.
 - **No paid APIs or API keys.** Do not call any hosted AI service and do not put keys in the repo.
 - **Synthetic data only.** Labels come from your own generator. Do not paste real names or customer data into the training set.
 - **Builds use host networking.** Containers on the default Docker network cannot reach the internet from the campus network, so build with `docker build --network host -t ml-ai-infer:team<N> capstone/ml-ai/service`. Do not use `build: network: host` in Compose, do not disable firewalld, and do not edit `/etc/docker/daemon.json`.
-- **Tag with your team number.** All teams share one Docker daemon. Tag every image `<name>:team<N>` and import it with `k3d image import ml-ai-infer:team<N> -c <your cluster name>`. Never use `-c myapp`. Your cluster was created with `--subnet 100.97.<team>.0/24` so pods can pull images; do not recreate it.
+- **Tag with your team number.** All teams share one Docker daemon. Tag every image `<name>:team<N>` and import it with `k3d image import ml-ai-infer:team<N> -c <your cluster name>`. Never use `-c myapp`. Your cluster was created with `--subnet 100.97.<team>.0/24` so pods can pull images; do not recreate it during the sprint. For the Week 13 rebuild, your RUNBOOK must include the exact `k3d cluster create` command with every flag (on the Shared VM, keep the same `--subnet 100.97.<team>.0/24` with your team number; on the Local VM, use the same flags you used the first time).
 - **Non-root Dockerfile and file modes.** The VM uses `umask 077`, so files you edit are mode 600 and a non-root container user cannot read them. In your Dockerfile use `COPY --chmod=644` for the files the service reads (code and model file), or run `chmod 644` on them before building.
 - **New pods need a NetworkPolicy allow.** Your cluster has default-deny ingress in `default`, so your inference pod will be blocked from receiving traffic from other pods until you add an allow policy. A fragment to adapt (names and labels are yours to choose):
 ```yaml
@@ -165,6 +224,17 @@ spec:
 - **Keep files small.** The generated dataset and model should be small enough to review in a PR (a few MB at most).
 ## How to Run This Sprint
  
+### Sprint Timeline (Weeks 11 to 14)
+
+Both sections follow the same four weeks. The planning steps below still apply; this table says where your work should be at the end of each week. The full plan is in [WEEKLY-PLAN](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/WEEKLY-PLAN.md).
+
+| Week | By the end of the week |
+|---|---|
+| 11 Kickoff | Environment Checkpoint saved. Generator with labels and a fixed seed producing at least 5,000 rows. A first metrics file that includes the baseline, even if the model is weak. QA test cases drafted. |
+| 12 Build | Trained models and `metrics.json` compared to the baseline. Service built into an image, running as a Deployment with memory limits, behind its NetworkPolicy. First timing recorded. |
+| 13 Consolidate and rebuild | Blocked-traffic evidence, image size evidence, one documented wrong prediction, RUNBOOK and ARCHITECTURE, rebuild, and gap log. |
+| 14 Present | Rebuild presentation (live on the Shared VM, recorded on the Local VM) plus your metrics and a live request to the service. |
+
 ### Shared VM (RHEL, teams)
  
 1. **Sprint planning.** As a team, read the success criteria and turn them into GitHub issues on your project board. Split big items: data generation, labeling rules, training, evaluation, Dockerfile, manifests, NetworkPolicy, docs.
@@ -179,9 +249,27 @@ spec:
 6. **Retrospective.** At the end, fill out `docs/final-sprint-retrospective.md` together.
 ### Local VM (Ubuntu, individual)
  
-- **Week 1:** Dataset generator and labels, training script, metrics file committed, your test cases written in `docs/qa-report-final.md`.
-- **Week 2:** Dockerfile, image import, Deployment with memory limits, NetworkPolicy, RUNBOOK, ARCHITECTURE, top-level README section, demo.
+- **Week 11:** Dataset generator and labels, training script, metrics file committed, your test cases written in `docs/qa-report-final.md`.
+- **Week 12:** Dockerfile, image import, Deployment with memory limits, NetworkPolicy, RUNBOOK, ARCHITECTURE, top-level README section, demo.
+- **Week 13:** consolidate your documents, then rebuild on a new VirtualBox VM and keep a gap log (see the Rebuild section).
+- **Week 14:** recorded presentation of your rebuild.
 - You write your own test cases in the same QA file and sign as both author and tester. A short reflection replaces the retrospective.
+
+## Rebuild (Weeks 13 and 14)
+
+Your work has to come back up from your repository alone. Start from a clean VM, clone your repo, and follow only your README, RUNBOOK, and scripts. Every step that fails or that your README forgot is a gap: write it in `capstone/ml-ai/REBUILD-GAPS.md`, fix it by pull request, and update the README. The full contract, the "what lives outside git" checklist, and the gap log template are in [REBUILD](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/REBUILD.md).
+
+> **Shared VM (RHEL, teams):** In Week 13 your team takes a turn in a queue to test the rebuild on a separate VM, which is wiped between teams. In Week 14 you present live: the tools are pre-installed, and your team clones the repo and brings the app up from your README and setup instructions. There is no sudo on the rebuild or presentation VM, so every step your README asks someone to run must work without it. Your Ansible playbooks and any [PREDICT ONLY] code stay reference-only: do not run them, and make sure bringing the app up does not depend on them. Recreate your k3d cluster with the same `--subnet 100.97.<team>.0/24` flag you used before.
+
+> **Local VM (Ubuntu, individual):** In Week 13 create a new VM in VirtualBox using the same steps you used for your original VM, clone your repo, and follow your README. Keep the original VM until the rebuild works. In Week 14 you present a recording of the rebuild.
+
+**Proof of life for this track:** the generator reproduces the same dataset from the seed (`sha256sum` matches); the model loads; one request returns a category, a severity, and a confidence.
+
+**Gaps this track usually finds:**
+- The `k3d cluster create` command and its `--subnet` flag are not in the repo.
+- The model file was trained on the old VM and never committed, and the training command is not documented.
+- The image was built and imported by hand, so the build and `k3d image import` commands are missing from the RUNBOOK.
+
 ## Deliverables
  
 - Implementation committed under `capstone/ml-ai/` in your repo (merged via PR on the RHEL section)
@@ -190,8 +278,10 @@ spec:
 - `capstone/ml-ai/ARCHITECTURE.md` with an architecture diagram (Mermaid OK) showing the VM, cluster, app, and new components
 - A "How to run this" section added to the repo's top-level README so someone who clones the repo can bring the track implementation up
 - `docs/qa-report-final.md` with your own test cases and results
+- `capstone/ml-ai/REBUILD-GAPS.md`: the gap log from your Week 13 rebuild (template in [REBUILD](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/REBUILD.md))
 - Shared VM: `docs/final-sprint-retrospective.md`. Local VM: a short reflection (the "Individual Reflection" section of the retrospective file)
 - Final presentation/demo: 8-10 minutes for a team on RHEL, 5 minutes for an individual. The RHEL demo is CLI-driven. Show the dataset and metrics files, the service answering a request, the memory limits and NetworkPolicy, and one case where the model is wrong and what you learned from it.
+- Week 14 rebuild presentation: live on the Shared VM (clone the repo and bring the app up from your README), recorded on the Local VM. See the Rebuild section.
 Track-specific items:
 - The dataset generator script and the dataset file (or instructions to regenerate it), with a fixed random seed
 - The training and evaluation scripts, plus the committed metrics file(s) including the baseline comparison
@@ -209,3 +299,7 @@ Track-specific items:
 ## Getting Help
  
 Clarifications about this track go to the TA or the professor. There is no wiki for the capstone tracks. If a tool is missing or `kubectl top` errors on the shared VM, tell the TA rather than working around it.
+
+**Before you ask:** work through [GETTING-UNSTUCK](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/GETTING-UNSTUCK.md) for about 30 minutes, then ask with the command, its full output, what you expected, and what you tried.
+
+**Using AI:** AI assistants are welcome as a tool for learning how these tools work and how enterprises use them. Do not rely on them to produce your work: understand every line you commit, verify AI answers against the tool's documentation, never paste AI output into evidence files, and never paste secrets into an AI tool. See [USING-AI](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/USING-AI.md).
