@@ -7,6 +7,8 @@
 > | I need... | Go to |
 > |---|---|
 > | A reading order and what to do in my first session | [START-HERE](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/START-HERE.md) |
+> | What I may change in the app, and how to propose my own criterion | [MAKE-IT-YOURS](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/MAKE-IT-YOURS.md) |
+> | Local VM: how my k3s and OpenTofu setup differs from this README | [LOCAL-VM](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/LOCAL-VM.md) |
 > | What to prioritize in Weeks 11 to 14 | [WEEKLY-PLAN](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/WEEKLY-PLAN.md) and the Sprint Timeline below |
 > | Plain-language explanations of this track's concepts | [CONCEPTS](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/CONCEPTS.md) |
 > | A cheat sheet for each tool in this track | [TOOL-GUIDE](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/TOOL-GUIDE.md) |
@@ -14,6 +16,8 @@
 > | How the Week 13 rebuild works | [REBUILD](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/REBUILD.md) and the Rebuild section below |
 > | Help when something is broken | [GETTING-UNSTUCK](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/GETTING-UNSTUCK.md) |
 > | How to use AI tools well on this project | [USING-AI](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/USING-AI.md) |
+>
+> **Local VM students:** much of this README describes the Shared VM setup (k3d, team numbers, `main`, `kubectl apply`). Your setup is a single-node k3s cluster that changes through OpenTofu and your deploy script. Look for the **Local VM** notes in each section, and keep [LOCAL-VM](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/LOCAL-VM.md) open while you work.
  
 ## Overview
  
@@ -51,6 +55,8 @@ This is a first exposure to machine learning for many of you. You are not being 
 ## Prerequisites
  
 Everything from earlier weeks must still work: the `statustracker` Flask API, PostgreSQL, the Docker Compose stack in `week-2/`, your team's k3d cluster, the default-deny NetworkPolicies and their allows, and Prometheus in the `monitoring` namespace.
+
+> **Local VM (Ubuntu, individual):** your prerequisites are Weeks 4 to 10 of your section: the k3s node with `web` and `db` managed by OpenTofu in `week-5/`, Prometheus (Week 6), the Deploy gate and `deploy.sh` (Week 7), resource limits and the `db-clients` NetworkPolicy (Weeks 8 and 9). Your table is `tickets`, not `incidents`, with the same columns, and there is no `seed.py`: you write your generator from scratch under `capstone/ml-ai/`, which criterion 1 asks for anyway.
  
 ### Environment Checkpoint
  
@@ -67,10 +73,22 @@ free -h
 ```
  
 Replace `8080` with your Compose port (8080 + team number on the shared VM).
+
+**Local VM:** your Compose stack has been stopped since Week 4, so use this block instead:
+
+```bash
+kubectl get nodes
+kubectl get pods -A
+kubectl get networkpolicy
+curl -s http://$(kubectl get service web -o jsonpath='{.spec.clusterIP}'):8080/health
+./week-10/sql.sh
+tail -5 ~/deploy.log
+free -h
+```
  
 > **Shared VM (RHEL, teams):** Use your own team's ports for every command in this track.
  
-> **Local VM (Ubuntu, individual):** There is no team number; the ports are 8080 (Compose), 8081 (Kubernetes) and 9090 (Prometheus). To check Prometheus, run `./week-5/pq.sh` the way you did in Week 5, with `PROM_URL` pointing at your Prometheus port-forward.
+> **Local VM (Ubuntu, individual):** There is no team number. Reach the app at the `web` Service address shown above, or in your browser with `kubectl port-forward --address 0.0.0.0 service/web 8080:8080` and http://localhost:8080. To check Prometheus, run `kubectl port-forward --namespace monitoring service/prometheus-server 9090:80` in its own terminal and `./week-6/pq.sh 'up'` the way you did in Week 6.
  
 ## Team Port Assignments
  
@@ -86,7 +104,7 @@ Replace `8080` with your Compose port (8080 + team number on the shared VM).
 | 6    | 8086    | 8096       | 9096       | 9296                    |
 | 7    | 8087    | 8097       | 9097       | 9297                    |
  
-> **Local VM (Ubuntu, individual):** There is no team number. Use the usual ports (8080 for Compose, 8081 for the Kubernetes app in the VS Code forwarded browser, 9090 for Prometheus) and use **9290** for the inference service port-forward. A browser is not needed for this track; use `curl`.
+> **Local VM (Ubuntu, individual):** There is no team number. The app is on port 8080 (through the `web` Service or your port-forward), Prometheus on 9090, and the inference service port-forward on **9290**. From inside the VM you can also call the inference Service by its cluster address, the same way `week-10/run-k6.sh` reaches `web`. A browser is not needed for this track; use `curl`.
  
 The inference service itself listens on a port of your choosing inside the pod (for example 5001). Only the port-forward uses the 9290 + team number pattern. You may instead keep the service reachable only from inside the cluster (for example only from the Flask pods). If you do, say so in `ARCHITECTURE.md` and still document how you tested it.
  
@@ -105,7 +123,7 @@ The inference service itself listens on a port of your choosing inside the pod (
  
 > **Shared VM (RHEL, teams):** The system tools in this table (everything except Python packages in your own virtualenv) are pre-installed by the TA. Run the Verify command for each tool. If a command is not found, post in the course channel or tell the TA or professor before continuing. Do not install anything system-wide.
  
-> **Local VM (Ubuntu, individual):** Your VM runs Ubuntu Server 26.04.1. You install tools yourself. Run the command in the last column, then the Verify command.
+> **Local VM (Ubuntu, individual):** Your VM runs Ubuntu Server 26.04.1. You install tools yourself. Run the command in the last column, then the Verify command. k3d is not part of your setup: skip its Verify command and use `kubectl get nodes` instead.
  
 **Versions.** This table has no version numbers on purpose: use the current stable release of each tool, so these instructions keep working in future semesters. Record what you actually used. Run each Verify command and save the output to `capstone/ml-ai/TOOL-VERSIONS.txt`, then commit it. For Python packages, also save `~/ml-ai-venv/bin/pip freeze > capstone/ml-ai/requirements.txt` after you install them, so a teammate (or a future you) can rebuild the same environment.
  
@@ -135,6 +153,8 @@ These are examples, not requirements. Combine them, change them, or ignore them.
  
 **Approach A: Text classifier for category and severity.** Extend your own copy of `seed.py` so each generated incident also gets a category and a severity chosen by rules you define (for example, titles about certificates or logins map to a security category). Train a TF-IDF vectorizer with a linear classifier, one for category and one for severity, and serve both. This demonstrates the full loop of labeling, training, evaluating, and serving, and shows how label quality limits model quality.
  
+> **Local VM:** you have no `seed.py`. Write a generator under `capstone/ml-ai/` that produces titles, categories, and severities, and decide whether it also inserts rows into `tickets` (for example through `./week-10/sql.sh` or a CSV loaded with `psql`).
+
 **Approach B: Volume anomaly alert.** Instead of (or in addition to) classifying text, count incidents per hour from the `created_at` column and train an IsolationForest or a simple rolling threshold to flag unusual spikes. The service accepts a recent count and answers "normal" or "unusual". This demonstrates unsupervised learning, and it connects naturally to the Prometheus metrics you already collect.
  
 **Approach C: Honest-evaluation focus.** Build a smaller classifier but invest in the evaluation: a confusion matrix saved as a file, per-class precision and recall, a deliberately harder test set (titles with unseen wording), and a written explanation of where the model should not be trusted. This demonstrates that a measured, modest model is more useful to Priya's team than an unmeasured impressive one.
@@ -185,6 +205,13 @@ spec:
 
 Then `kubectl exec blocked-client -- wget -T 5 -qO- http://<service>:<port>/<path>`, save the output, and `kubectl delete pod blocked-client`.
 
+**Local VM notes (criteria 3 to 5)**
+
+- **Ship the service through OpenTofu.** Your inference Deployment, Service, and NetworkPolicy go in a new file such as `week-5/ml-infer.tf`, using `kubernetes_deployment_v1`, `kubernetes_service_v1`, and `kubernetes_network_policy_v1`. Follow the pattern of your hardened `web.tf` from Week 8: non-root user, `allow_privilege_escalation = false`, CPU and memory requests and limits, and `image_pull_policy = "IfNotPresent"`. The Deploy gate's security scan fails without them.
+- **Import before you merge.** Build `ml-ai-infer:v1`, then `docker save ml-ai-infer:v1 -o /tmp/infer.tar && sudo k3s ctr images import /tmp/infer.tar` before the pull request that deploys it. Check with `sudo k3s crictl images | grep ml-ai-infer`. Image size comes from `docker image ls ml-ai-infer:v1`.
+- **There is no default-deny on your VM.** Your inference pod accepts traffic from every pod until you add a policy that selects it. Once your policy selects it, only what the policy allows gets in, which is exactly what criterion 4 needs. Allow from `app: web` (your Flask pods are labeled `web`, not `flask`), and translate the YAML fragment in Rules of the Road into a `kubernetes_network_policy_v1` resource.
+- **Calling it from the app is optional and fits Make It Yours.** If `web` calls the inference service when a ticket is created, add the new setting (the service URL) to your ConfigMap in `week-5/` rather than hard-coding it.
+
 ## Rules of the Road
  
 - **Obey the shared-VM limits.** About six teams share one VM. Keep all your additions under **512Mi** of memory limits combined. Every pod you deploy needs `resources.requests` and `resources.limits` for memory. Check with `kubectl describe pod <name>` (look at Requests and Limits), `free -h`, and `kubectl top pods -A`. If `kubectl top` errors, tell the TA.
@@ -222,6 +249,20 @@ spec:
 - **Stay inside your own cluster.** Do not scan or probe the VM, the campus network, or other teams' ports. Test only your own service on your own ports.
 - **Git rules (RHEL).** Work on a branch: `git switch -c <branch>`, `git push -u origin <branch>`, open a pull request, wait for build-and-push, then merge. Never push to `main`.
 - **Keep files small.** The generated dataset and model should be small enough to review in a PR (a few MB at most).
+
+### Local VM (Ubuntu, individual) rules
+
+The rules above that mention other teams, team numbers, k3d, `--network host`, firewalld, `/etc/docker/daemon.json`, `umask 077`, or [PREDICT ONLY] describe the Shared VM. On your own VM these apply instead:
+
+- **Change the cluster through OpenTofu.** Anything that should last goes in `week-5/*.tf`, through a pull request, the Deploy gate, and `week-7/deploy.sh`. Throwaway test pods may use `kubectl apply`, and you delete them afterward. A change made with `kubectl` to an object OpenTofu manages is undone by the next deploy.
+- **The gate checks your additions.** Every container you add in `week-5/` needs CPU and memory requests and limits and must not allow privilege escalation, or the `security scan` job fails and the ruleset blocks the merge.
+- **New image, new tag.** Build a new tag (for example `:v1`, `:v2`), import it with `docker save` and `sudo k3s ctr images import` **before** the pull request that uses it, and never overwrite the tag that is running.
+- **`master` and `protect-master` stay.** Work on branches and merge through pull requests. Do not delete the ruleset, remove its checks, or add a bypass.
+- **No default-deny.** Only the `db` pods are protected (by `db-clients`). A pod you add accepts traffic from anywhere until a NetworkPolicy selects it.
+- **sudo** is for package installs, `sudo install` of single binaries, and `sudo k3s ctr`. Run `kubectl`, `helm`, `tofu`, and `k6` as your normal user.
+- **Memory budget still applies:** keep your additions under 512Mi of memory limits combined. Check `free -h` before and after.
+- **Image tags:** use versions such as `ml-ai-infer:v1`, not `team<N>`, and no `-c` flag (there is no k3d).
+
 ## How to Run This Sprint
  
 ### Sprint Timeline (Weeks 11 to 14)
@@ -249,9 +290,11 @@ Both sections follow the same four weeks. The planning steps below still apply; 
 6. **Retrospective.** At the end, fill out `docs/final-sprint-retrospective.md` together.
 ### Local VM (Ubuntu, individual)
  
-- **Week 11:** Dataset generator and labels, training script, metrics file committed, your test cases written in `docs/qa-report-final.md`.
-- **Week 12:** Dockerfile, image import, Deployment with memory limits, NetworkPolicy, RUNBOOK, ARCHITECTURE, top-level README section, demo.
-- **Week 13:** consolidate your documents, then rebuild on a new VirtualBox VM and keep a gap log (see the Rebuild section).
+You follow the same Sprint Timeline as the Shared VM teams, alone.
+
+- **Week 11:** Environment Checkpoint saved. Generator with labels and a fixed seed producing at least 5,000 rows. A first metrics file that includes the baseline, even if the model is weak. Your test cases drafted in `docs/qa-report-final.md`.
+- **Week 12:** trained models and `metrics.json` compared to the baseline. Service built into an image, imported into k3s, and running through `week-5/` as a Deployment with memory limits, behind its NetworkPolicy. First timing recorded.
+- **Week 13:** blocked-traffic evidence, image size evidence, one documented wrong prediction, RUNBOOK, ARCHITECTURE, and the top-level README section, then rebuild on a new VirtualBox VM and keep a gap log (see the Rebuild section).
 - **Week 14:** recorded presentation of your rebuild.
 - You write your own test cases in the same QA file and sign as both author and tester. A short reflection replaces the retrospective.
 
@@ -261,7 +304,7 @@ Your work has to come back up from your repository alone. Start from a clean VM,
 
 > **Shared VM (RHEL, teams):** In Week 13 your team takes a turn in a queue to test the rebuild on a separate VM, which is wiped between teams. In Week 14 you present live: the tools are pre-installed, and your team clones the repo and brings the app up from your README and setup instructions. There is no sudo on the rebuild or presentation VM, so every step your README asks someone to run must work without it. Your Ansible playbooks and any [PREDICT ONLY] code stay reference-only: do not run them, and make sure bringing the app up does not depend on them. Recreate your k3d cluster with the same `--subnet 100.97.<team>.0/24` flag you used before.
 
-> **Local VM (Ubuntu, individual):** In Week 13 create a new VM in VirtualBox using the same steps you used for your original VM, clone your repo, and follow your README. Keep the original VM until the rebuild works. In Week 14 you present a recording of the rebuild.
+> **Local VM (Ubuntu, individual):** In Week 13 create a new VM in VirtualBox using the same steps you used for your original VM, clone your repo, and follow your README. Keep the original VM until the rebuild works. In Week 14 you present a recording of the rebuild. Start from the "Rebuild on a fresh VM" sections you wrote in your Week 7, 8, and 9 READMEs (k3s, OpenTofu variables, image import, deploy and backup cron lines), then add everything this track added. The full Local VM order is in [REBUILD](https://github.com/INET4031-Labs/inet4031-capstone-guide/blob/main/REBUILD.md). You have sudo on your own VM; every step that needs it must be in your README.
 
 **Proof of life for this track:** the generator reproduces the same dataset from the seed (`sha256sum` matches); the model loads; one request returns a category, a severity, and a confidence.
 
@@ -269,6 +312,7 @@ Your work has to come back up from your repository alone. Start from a clean VM,
 - The `k3d cluster create` command and its `--subnet` flag are not in the repo.
 - The model file was trained on the old VM and never committed, and the training command is not documented.
 - The image was built and imported by hand, so the build and `k3d image import` commands are missing from the RUNBOOK.
+- Local VM: the inference image was imported into k3s on the old VM only, so the first deploy on the new VM cannot start the pod. The `docker save` and `sudo k3s ctr images import` steps belong in the README before `./week-7/deploy.sh`.
 
 ## Deliverables
  
