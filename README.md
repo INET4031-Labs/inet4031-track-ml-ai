@@ -165,6 +165,8 @@ These notes come from where students usually get stuck. They do not change the s
 
 **Labels are the hard part (criteria 1 and 2)**
 
+- **What one labeled row could look like.** Think in columns before code. Each row needs a title, a category (at least 4, chosen to fit a logistics support desk, such as scanners and handhelds, the dispatch app, printers and labels, logins and access, network), and a severity (at least 3 levels, such as low, medium, high). Then write the rules that connect them in plain language first, for example "titles that mention every depot or a full outage are high," "a single printer is low unless it blocks shipping." If you plan Approach B, include `created_at` too. Put that rule list in `ARCHITECTURE.md` before you write the generator: it is your labeling policy, and it is what criterion 2's accuracy actually measures.
+
 - If your generator assigns labels from keywords in the title and the model reads the same titles, it will score close to perfect. That tells you about your generator, not about real incidents. Make the data more realistic and harder: synonyms, titles that could fit two categories, a small share of deliberately "noisy" labels, and a test set with wording the model never saw. Write what you did and why in `ARCHITECTURE.md`. Discussion question 2 asks about exactly this.
 - Seed everything: Python's `random`, NumPy, and `random_state=` in `train_test_split` and the model. Prove reproducibility by running the generator twice and comparing `sha256sum` of both outputs.
 
@@ -176,6 +178,16 @@ These notes come from where students usually get stuck. They do not change the s
 - For the confidence value, `predict_proba` gives a probability per class; the highest one is a reasonable confidence to return.
 
 **Serving and proving it (criteria 3 to 5)**
+
+- **Decide the contract before the code.** Write down what a request and a response look like, then build to it and test it in your QA file. For example:
+
+  ```text
+  POST /predict
+  request:  {"title": "Handheld scanner at Depot 4 will not sync"}
+  response: {"category": "scanners", "severity": "medium", "confidence": 0.82, "advisory": true}
+  ```
+
+  The names and values are only an example. Decide whether you return one confidence or one per target, what an empty or missing title returns (an HTTP 400 with a message is common), and how the response makes clear the suggestion is advisory, which Elena asked for. Put the contract in `ARCHITECTURE.md`.
 
 - Load the model once when the service starts, not on every request, or your timing will suffer. Measure with `curl -s -o /dev/null -w "%{time_total}\n" ...` and save several runs, not one.
 - For the blocked-traffic test, use a short-lived pod with a memory limit (see the debug pod example below) that does not match your allow policy, and request your service's cluster address. A request that times out is the expected result; save the output.
